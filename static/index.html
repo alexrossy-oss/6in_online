@@ -1,0 +1,221 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>6-In Online</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .row { margin: 10px 0; }
+    input { padding: 8px; font-size: 16px; }
+    button { padding: 8px 14px; font-size: 16px; cursor: pointer; }
+    #status { margin-top: 10px; font-weight: bold; }
+    #players, #game, #diceBox { margin-top: 15px; padding: 10px; border: 1px solid #ccc; max-width: 520px; }
+    li { margin: 4px 0; }
+    .turn { font-size: 18px; margin-top: 10px; }
+
+    .dice { display: flex; gap: 12px; margin-top: 10px; }
+
+    .die {
+      width: 48px;
+      height: 48px;
+      border: 2px solid #222;
+      border-radius: 8px;
+      background: #fff;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+      padding: 6px;
+      box-sizing: border-box;
+    }
+
+    .pip {
+      width: 8px;
+      height: 8px;
+      background: #000;
+      border-radius: 50%;
+      justify-self: center;
+      align-self: center;
+      visibility: hidden;
+    }
+
+    .pip.on { visibility: visible; }
+  </style>
+</head>
+<body>
+  <h2>6-In Online</h2>
+
+  <div id="lobby">
+    <div class="row">
+      <label>Room Code:</label><br/>
+      <input id="room" placeholder="Example: A3F9 (or leave blank)" />
+    </div>
+
+    <div class="row">
+      <label>Your Name:</label><br/>
+      <input id="name" placeholder="Alex" />
+    </div>
+
+    <div class="row">
+      <button id="joinBtn">Join Room</button>
+      <button id="leaveBtn" disabled>Leave</button>
+    </div>
+  </div>
+
+  <div id="status">Connecting...</div>
+
+  <div id="players">
+    <div><b>Players:</b> <span id="count">0</span></div>
+    <ul id="playerList"></ul>
+  </div>
+
+  <div id="game">
+    <button id="startBtn">Start Game</button>
+    <button id="rollBtn" disabled>Roll Dice</button>
+    <button id="endTurnBtn" disabled>End Turn</button>
+
+    <div class="turn">
+      <b>Current Turn:</b>
+      <span id="currentTurn">—</span>
+    </div>
+  </div>
+
+  <div id="diceBox">
+    <b>Dice:</b>
+    <div class="dice" id="dice"></div>
+  </div>
+
+  <script>
+    let ws = null;
+    let myName = "";
+    let rolling = false;
+
+    const roomInput = document.getElementById("room");
+    const nameInput = document.getElementById("name");
+    const joinBtn = document.getElementById("joinBtn");
+    const leaveBtn = document.getElementById("leaveBtn");
+    const startBtn = document.getElementById("startBtn");
+    const rollBtn = document.getElementById("rollBtn");
+    const endTurnBtn = document.getElementById("endTurnBtn");
+
+    const statusEl = document.getElementById("status");
+    const listEl = document.getElementById("playerList");
+    const countEl = document.getElementById("count");
+    const currentTurnEl = document.getElementById("currentTurn");
+    const diceEl = document.getElementById("dice");
+
+    const pipMap = {
+      1: [4],
+      2: [0, 8],
+      3: [0, 4, 8],
+      4: [0, 2, 6, 8],
+      5: [0, 2, 4, 6, 8],
+      6: [0, 2, 3, 5, 6, 8],
+    };
+
+    function setStatus(text) { statusEl.textContent = text; }
+
+    function renderPlayers(players) {
+      listEl.innerHTML = "";
+      countEl.textContent = players.length;
+      for (const p of players) {
+        const li = document.createElement("li");
+        li.textContent = p;
+        listEl.appendChild(li);
+      }
+    }
+
+    function drawDie(value) {
+      const die = document.createElement("div");
+      die.className = "die";
+      for (let i = 0; i < 9; i++) {
+        const pip = document.createElement("div");
+        pip.className = "pip";
+        if (pipMap[value]?.includes(i)) pip.classList.add("on");
+        die.appendChild(pip);
+      }
+      return die;
+    }
+
+    function renderDice(dice) {
+      diceEl.innerHTML = "";
+      for (const v of dice) diceEl.appendChild(drawDie(v));
+    }
+
+    function animateRoll(finalDice) {
+      if (rolling) return;
+      rolling = true;
+
+      const frames = 12;
+      let count = 0;
+
+      const interval = setInterval(() => {
+        const temp = finalDice.map(() => Math.floor(Math.random() * 6) + 1);
+        renderDice(temp);
+        count++;
+        if (count >= frames) {
+          clearInterval(interval);
+          renderDice(finalDice);
+          rolling = false;
+        }
+      }, 60);
+    }
+
+    function connect() {
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+      ws.onopen = () => setStatus("Connected. Join a room.");
+      ws.onclose = () => setStatus("Disconnected.");
+      ws.onerror = () => setStatus("WebSocket error.");
+
+      ws.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data);
+
+        if (msg.type === "room_state") {
+          renderPlayers(msg.players);
+          joinBtn.disabled = true;
+          leaveBtn.disabled = false;
+          setStatus(`In room ${msg.room}`);
+        }
+
+        if (msg.type === "game_state") {
+          currentTurnEl.textContent = msg.current_turn || "—";
+
+          if (msg.dice && msg.dice.length > 0) {
+            animateRoll(msg.dice);
+          } else {
+            renderDice([]);
+          }
+
+          const isMyTurn = msg.current_turn === myName;
+          rollBtn.disabled = !isMyTurn || msg.rolled_this_turn;
+          endTurnBtn.disabled = !isMyTurn;
+        }
+      };
+    }
+
+    joinBtn.onclick = () => {
+      const room = roomInput.value.trim().toUpperCase();
+      const name = nameInput.value.trim();
+      if (!name) return alert("Enter your name.");
+      myName = name;
+      ws.send(JSON.stringify({ type: "join", room, name }));
+    };
+
+    leaveBtn.onclick = () => {
+      ws.send(JSON.stringify({ type: "leave" }));
+      joinBtn.disabled = false;
+      leaveBtn.disabled = true;
+      currentTurnEl.textContent = "—";
+      renderDice([]);
+    };
+
+    startBtn.onclick = () => ws.send(JSON.stringify({ type: "start_game" }));
+    rollBtn.onclick = () => ws.send(JSON.stringify({ type: "roll" }));
+    endTurnBtn.onclick = () => ws.send(JSON.stringify({ type: "end_turn" }));
+
+    connect();
+  </script>
+</body>
+</html>
