@@ -273,7 +273,7 @@
           const covered = !!boards[player][i];
           if (covered) t.classList.add("covered");
 
-          // clickable only on YOUR board, on YOUR turn, after roll
+          // clickable only on YOUR board, on YOUR turn, after roll, AND you have that die
           const clickable =
             player === myName &&
             isMyTurn &&
@@ -306,6 +306,12 @@
 
       ws.onmessage = (ev) => {
         const msg = JSON.parse(ev.data);
+
+        // ✅ NEW: show server errors
+        if (msg.type === "error") {
+          setStatus("❌ " + msg.message);
+          return;
+        }
 
         if (msg.type === "room_state") {
           renderPlayers(msg.players);
