@@ -10,7 +10,14 @@
     input { padding: 8px; font-size: 16px; }
     button { padding: 8px 14px; font-size: 16px; cursor: pointer; }
     #status { margin-top: 10px; font-weight: bold; }
-    #players, #game, #diceBox { margin-top: 15px; padding: 10px; border: 1px solid #ccc; max-width: 520px; }
+
+    #players, #game, #diceBox, #boards {
+      margin-top: 15px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      max-width: 600px;
+    }
+
     li { margin: 4px 0; }
     .turn { font-size: 18px; margin-top: 10px; }
 
@@ -40,6 +47,35 @@
     }
 
     .pip.on { visibility: visible; }
+
+    .player-board {
+      margin-top: 10px;
+      padding: 6px;
+      border: 1px solid #ddd;
+    }
+
+    .tiles {
+      display: flex;
+      gap: 8px;
+      margin-top: 6px;
+    }
+
+    .tile {
+      width: 36px;
+      height: 36px;
+      border: 2px solid #333;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      background: #fff;
+    }
+
+    .tile.covered {
+      background: #4caf50;
+      color: white;
+    }
   </style>
 </head>
 <body>
@@ -85,6 +121,11 @@
     <div class="dice" id="dice"></div>
   </div>
 
+  <div id="boards">
+    <b>Boards:</b>
+    <div id="boardsContainer"></div>
+  </div>
+
   <script>
     let ws = null;
     let myName = "";
@@ -103,6 +144,7 @@
     const countEl = document.getElementById("count");
     const currentTurnEl = document.getElementById("currentTurn");
     const diceEl = document.getElementById("dice");
+    const boardsEl = document.getElementById("boardsContainer");
 
     const pipMap = {
       1: [4],
@@ -118,11 +160,11 @@
     function renderPlayers(players) {
       listEl.innerHTML = "";
       countEl.textContent = players.length;
-      for (const p of players) {
+      players.forEach(p => {
         const li = document.createElement("li");
         li.textContent = p;
         listEl.appendChild(li);
-      }
+      });
     }
 
     function drawDie(value) {
@@ -139,26 +181,33 @@
 
     function renderDice(dice) {
       diceEl.innerHTML = "";
-      for (const v of dice) diceEl.appendChild(drawDie(v));
+      dice.forEach(v => diceEl.appendChild(drawDie(v)));
     }
 
-    function animateRoll(finalDice) {
-      if (rolling) return;
-      rolling = true;
+    function renderBoards(boards) {
+      boardsEl.innerHTML = "";
+      for (const player in boards) {
+        const pb = document.createElement("div");
+        pb.className = "player-board";
 
-      const frames = 12;
-      let count = 0;
+        const title = document.createElement("div");
+        title.textContent = player;
+        pb.appendChild(title);
 
-      const interval = setInterval(() => {
-        const temp = finalDice.map(() => Math.floor(Math.random() * 6) + 1);
-        renderDice(temp);
-        count++;
-        if (count >= frames) {
-          clearInterval(interval);
-          renderDice(finalDice);
-          rolling = false;
+        const tiles = document.createElement("div");
+        tiles.className = "tiles";
+
+        for (let i = 1; i <= 6; i++) {
+          const t = document.createElement("div");
+          t.className = "tile";
+          t.textContent = i;
+          if (boards[player][i]) t.classList.add("covered");
+          tiles.appendChild(t);
         }
-      }, 60);
+
+        pb.appendChild(tiles);
+        boardsEl.appendChild(pb);
+      }
     }
 
     function connect() {
@@ -181,12 +230,8 @@
 
         if (msg.type === "game_state") {
           currentTurnEl.textContent = msg.current_turn || "—";
-
-          if (msg.dice && msg.dice.length > 0) {
-            animateRoll(msg.dice);
-          } else {
-            renderDice([]);
-          }
+          renderDice(msg.dice || []);
+          renderBoards(msg.boards || {});
 
           const isMyTurn = msg.current_turn === myName;
           rollBtn.disabled = !isMyTurn || msg.rolled_this_turn;
@@ -209,6 +254,7 @@
       leaveBtn.disabled = true;
       currentTurnEl.textContent = "—";
       renderDice([]);
+      boardsEl.innerHTML = "";
     };
 
     startBtn.onclick = () => ws.send(JSON.stringify({ type: "start_game" }));
