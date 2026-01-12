@@ -41,6 +41,9 @@ class GameState:
     dice: List[int] = field(default_factory=list)        # current dice values
     rolled_this_turn: bool = False                       # prevents re-rolling
 
+    # board state: player -> number -> covered?
+    boards: Dict[str, Dict[int, bool]] = field(default_factory=dict)
+
 
 rooms: Dict[str, Room] = {}
 games: Dict[str, GameState] = {}
@@ -92,6 +95,7 @@ async def broadcast_game(room: Room, game: GameState):
         "current_turn": current_turn_name(game),
         "dice": game.dice,
         "rolled_this_turn": game.rolled_this_turn,
+        "boards": game.boards,  # new
     }
     msg = json.dumps(payload)
     dead: Set[WebSocket] = set()
@@ -145,6 +149,12 @@ async def ws_endpoint(ws: WebSocket):
                     # reset dice for new game
                     game.dice = []
                     game.rolled_this_turn = False
+
+                    # initialize boards (all uncovered)
+                    game.boards = {
+                        p: {i: False for i in range(1, 7)}
+                        for p in game.turn_order
+                    }
 
                 await broadcast_game(room, game)
 
