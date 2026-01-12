@@ -15,7 +15,7 @@
       margin-top: 15px;
       padding: 10px;
       border: 1px solid #ccc;
-      max-width: 600px;
+      max-width: 640px;
     }
 
     li { margin: 4px 0; }
@@ -50,31 +50,65 @@
 
     .player-board {
       margin-top: 10px;
-      padding: 6px;
+      padding: 8px;
       border: 1px solid #ddd;
+      border-radius: 8px;
+    }
+
+    .player-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-weight: bold;
+    }
+
+    .me-badge {
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid #999;
+      color: #333;
     }
 
     .tiles {
       display: flex;
       gap: 8px;
-      margin-top: 6px;
+      margin-top: 8px;
+      flex-wrap: wrap;
     }
 
     .tile {
-      width: 36px;
-      height: 36px;
+      width: 44px;
+      height: 44px;
       border: 2px solid #333;
-      border-radius: 6px;
+      border-radius: 10px;
       display: flex;
       align-items: center;
       justify-content: center;
       font-weight: bold;
       background: #fff;
+      user-select: none;
     }
 
     .tile.covered {
       background: #4caf50;
       color: white;
+    }
+
+    .tile.clickable {
+      outline: 3px solid rgba(0,0,0,0.10);
+      cursor: pointer;
+    }
+
+    .tile.clickable:active {
+      transform: scale(0.97);
+    }
+
+    .hint {
+      margin-top: 8px;
+      color: #555;
+      font-size: 13px;
     }
   </style>
 </head>
@@ -114,6 +148,8 @@
       <b>Current Turn:</b>
       <span id="currentTurn">—</span>
     </div>
+
+    <div class="hint" id="hint">Hint: Roll, then tap numbers on YOUR board to cover them (if you have matching dice).</div>
   </div>
 
   <div id="diceBox">
@@ -129,7 +165,14 @@
   <script>
     let ws = null;
     let myName = "";
-    let rolling = false;
+
+    let lastGame = {
+      started: false,
+      current_turn: null,
+      dice: [],
+      rolled_this_turn: false,
+      boards: {}
+    };
 
     const roomInput = document.getElementById("room");
     const nameInput = document.getElementById("name");
@@ -184,15 +227,40 @@
       dice.forEach(v => diceEl.appendChild(drawDie(v)));
     }
 
+    function canCoverNow() {
+      return (
+        lastGame.started &&
+        lastGame.current_turn === myName &&
+        lastGame.rolled_this_turn &&
+        Array.isArray(lastGame.dice) &&
+        lastGame.dice.length > 0
+      );
+    }
+
     function renderBoards(boards) {
       boardsEl.innerHTML = "";
+      const isMyTurn = lastGame.current_turn === myName;
+
       for (const player in boards) {
         const pb = document.createElement("div");
         pb.className = "player-board";
 
-        const title = document.createElement("div");
-        title.textContent = player;
-        pb.appendChild(title);
+        const header = document.createElement("div");
+        header.className = "player-title";
+
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = player;
+
+        header.appendChild(nameSpan);
+
+        if (player === myName) {
+          const badge = document.createElement("span");
+          badge.className = "me-badge";
+          badge.textContent = "YOU";
+          header.appendChild(badge);
+        }
+
+        pb.appendChild(header);
 
         const tiles = document.createElement("div");
         tiles.className = "tiles";
@@ -201,7 +269,25 @@
           const t = document.createElement("div");
           t.className = "tile";
           t.textContent = i;
-          if (boards[player][i]) t.classList.add("covered");
+
+          const covered = !!boards[player][i];
+          if (covered) t.classList.add("covered");
+
+          // clickable only on YOUR board, on YOUR turn, after roll
+          const clickable =
+            player === myName &&
+            isMyTurn &&
+            canCoverNow() &&
+            !covered &&
+            lastGame.dice.includes(i);
+
+          if (clickable) {
+            t.classList.add("clickable");
+            t.onclick = () => {
+              ws.send(JSON.stringify({ type: "cover", n: i }));
+            };
+          }
+
           tiles.appendChild(t);
         }
 
@@ -229,6 +315,8 @@
         }
 
         if (msg.type === "game_state") {
+          lastGame = msg;
+
           currentTurnEl.textContent = msg.current_turn || "—";
           renderDice(msg.dice || []);
           renderBoards(msg.boards || {});
